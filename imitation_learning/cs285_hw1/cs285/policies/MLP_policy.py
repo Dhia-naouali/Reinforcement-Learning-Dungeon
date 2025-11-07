@@ -121,14 +121,29 @@ class MLPPolicySL(BasePolicy, nn.Module, metaclass=abc.ABCMeta):
 
         :param observation: observation(s) to query the policy
         :return:
-            action: sampled action(s) from the policy
+            distibution: p(a | s) from the policy
         """
-        # TODO: implement the forward pass of the network.
-        # You can return anything you want, but you should be able to differentiate
-        # through it. For example, you can return a torch.FloatTensor. You can also
-        # return more flexible objects, such as a
-        # `torch.distributions.Distribution` object. It's up to you!
-        raise NotImplementedError
+        mean = self.mean_net(observation)
+        logstd = torch.clamp(self.logstd(observation), -20, 2) # keeping std in 1e-9, ~7 after exp
+        base = distributions.Normal(
+            mean,
+            torch.exp(logstd)
+        )
+        dist = distributions.TransformedDistribution(
+            base,
+            [distributions.TanhTransform(cache_size=1)]
+        )
+        dist._mean = torch.tanh(mean) # deterministic actions for evals
+        return dist
+
+    @torch.no_grad()
+    def act(
+        self, 
+        observation, 
+        deterministic=True # the JAX curse
+    ):
+        dist = self(observation)
+        return dist.sample() if deterministic else dist._mean
 
     def update(self, observations, actions):
         """
@@ -139,9 +154,17 @@ class MLPPolicySL(BasePolicy, nn.Module, metaclass=abc.ABCMeta):
         :return:
             dict: 'Training Loss': supervised learning loss
         """
-        # TODO: update the policy and return the loss
-        loss = TODO
+        self.optimizer.zero_grad()
+        dist = self(observations)
+        # da p(a) = du p(u), a = tanh(u) => du/da = 1/(1-a²)
+        # log(p(a)) = log(p(u)) - log(1-a²).sum()
+        # loss = base.log_prob(actions) - torch.log(1 - a.pow(2) + 1e-6).sum(-1)
+
+        # sum over all actions in each batch, mean nll over batch
+        loss = - dist.log_prob(actions).sum(-1).mean() 
+
+        loss.backward()
+        self.optimizer.step()
         return {
-            # You can add extra logging information here, but keep this line
-            'Training Loss': ptu.to_numpy(loss),
+            'Training Loss': loss.item(),
         }
