@@ -124,7 +124,7 @@ class MLPPolicySL(BasePolicy, nn.Module, metaclass=abc.ABCMeta):
             distibution: p(a | s) from the policy
         """
         mean = self.mean_net(observation)
-        logstd = torch.clamp(self.logstd(observation), -20, 2) # keeping std in 1e-9, ~7 after exp
+        logstd = torch.clamp(self.logstd, -20, 2) # keeping std in 1e-9, ~7 after exp
         base = distributions.Normal(
             mean,
             torch.exp(logstd)
@@ -140,10 +140,10 @@ class MLPPolicySL(BasePolicy, nn.Module, metaclass=abc.ABCMeta):
     def act(
         self, 
         observation, 
-        deterministic=True # the JAX curse
+        deterministic=False # the JAX curse
     ):
         dist = self(observation)
-        return dist.sample() if deterministic else dist._mean
+        return dist._mean if deterministic else dist.sample()
 
     def update(self, observations, actions):
         """
@@ -160,8 +160,11 @@ class MLPPolicySL(BasePolicy, nn.Module, metaclass=abc.ABCMeta):
         # log(p(a)) = log(p(u)) - log(1-a²).sum()
         # loss = base.log_prob(actions) - torch.log(1 - a.pow(2) + 1e-6).sum(-1)
 
+        eps = 1e-6
         # sum over all actions in each batch, mean nll over batch
-        loss = - dist.log_prob(actions).sum(-1).mean() 
+        loss = - dist.log_prob(
+            actions.clamp(-1+eps, 1-eps)
+        ).sum(-1).mean() 
 
         loss.backward()
         self.optimizer.step()
