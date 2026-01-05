@@ -67,6 +67,10 @@ class PGAgent(nn.Module):
         # TODO: flatten the lists of arrays into single arrays, so that the rest of the code can be written in a vectorized
         # way. obs, actions, rewards, terminals, and q_values should all be arrays with a leading dimension of `batch_size`
         # beyond this point.
+        obs = np.array(obs)
+        actions = np.arrays(actions)
+        rewards = np.arrays(rewards)
+        q_values = np.array(q_values)
 
         # step 2: calculate advantages from Q values
         advantages: np.ndarray = self._estimate_advantage(
@@ -94,7 +98,8 @@ class PGAgent(nn.Module):
             # trajectory at each point.
             # In other words: Q(s_t, a_t) = sum_{t'=0}^T gamma^t' r_{t'}
             # TODO: use the helper function self._discounted_return to calculate the Q-values
-            q_values = None
+            discount = torch.pow(self.gamma, torch.arange(len(rewards)))
+            q_values = discount * rewards
         else:
             # Case 2: in reward-to-go PG, we only use the rewards after timestep t to estimate the Q-value for (s_t, a_t).
             # In other words: Q(s_t, a_t) = sum_{t'=t}^T gamma^(t'-t) * r_{t'}
@@ -114,6 +119,7 @@ class PGAgent(nn.Module):
 
         Operates on flat 1D NumPy arrays.
         """
+        import IPython; IPython.embed()
         if self.critic is None:
             # TODO: if no baseline, then what are the advantages?
             advantages = None
